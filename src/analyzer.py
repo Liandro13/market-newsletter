@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from google import genai
 from groq import Groq
 
 TODAY = datetime.now().strftime("%d/%m/%Y")
@@ -25,7 +26,7 @@ Gera APENAS:
    - Tabela compacta, font-size: 13px, borders: #e2e8f0
 3. Análise ({num_sentences} frases): Só causas baseadas nas notícias. Cita fontes entre parênteses. Não repitas dados da tabela.
 
-Retorna APENAS HTML.
+Retorna APENAS HTML, sem markdown code blocks.
 
 DADOS:
 {data}"""
@@ -39,7 +40,7 @@ ESTRUTURA:
 4. DESTAQUES ({highlight_title}): {highlight_count} movimentos mais significativos cross-sector. Lista HTML (<ul><li>). Formato: "<strong>TICKER</strong> (variação dia%): razão em 1 frase."
 5. {outlook_title}: {outlook_desc}. USA LISTA HTML (<ul><li>).
 
-Retorna APENAS HTML.
+Retorna APENAS HTML, sem markdown code blocks.
 
 ÍNDICES:
 {indices}
@@ -48,26 +49,90 @@ SECÇÕES:
 {sections}"""
 
 
-def generate_newsletter(sector_data, index_data, news_data, weekly=False):
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
 
+
+def _call_gemini(prompt, system_msg, max_tokens=2500):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    client = genai.Client(api_key=api_key)
+    full_prompt = f"{system_msg}\n\n{prompt}"
+    for model in GEMINI_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=full_prompt,
+            )
+            return response.text
+        except Exception as e:
+            err = str(e)[:80]
+            if "503" in err or "429" in err or "UNAVAILABLE" in err or "EXHAUSTED" in err:
+                print(f"   Gemini {model} indisponível, tentando próximo...")
+                continue
+            raise
+    raise RuntimeError("Gemini models all unavailable")
+
+
+def _call_groq(prompt, system_msg, max_tokens=2500):
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY not set")
+    client = Groq(api_key=api_key)
+    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.15,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if "429" in str(e) or "rate_limit" in str(e).lower():
+                continue
+            raise
+    raise RuntimeError("Groq models all rate limited")
+
+
+def _call_llm(prompt, max_tokens=2500):
+    providers = [
+        ("Gemini", _call_gemini),
+        ("Groq", _call_groq),
+    ]
+    for name, fn in providers:
+        try:
+            return fn(prompt, SYSTEM_MSG, max_tokens)
+        except Exception as e:
+            print(f"   {name} falhou: {type(e).__name__}: {str(e)[:80]}")
+            continue
+    raise RuntimeError("Todos os providers falharam.")
+
+
+def _clean(text):
+    for prefix in ["```html", "```"]:
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+def generate_newsletter(sector_data, index_data, news_data, weekly=False):
     def _analyze_sector(sector, data):
         sector_text = _build_sector_data(sector, data, news_data.get(sector, []))
         num_sentences = "3-4" if weekly else "2-3"
-
         prompt = SECTOR_PROMPT.format(
             sector_name=sector,
             emoji=data["emoji"],
             num_sentences=num_sentences,
             data=sector_text,
         )
-
         print(f"   Analisando {data['emoji']} {sector}...")
-        text = _call_llm(client, [
-            {"role": "system", "content": SYSTEM_MSG},
-            {"role": "user", "content": prompt},
-        ], max_tokens=2500)
-        return sector, _clean_response(text)
+        return sector, _clean(_call_llm(prompt, max_tokens=2500))
 
     sector_order = list(sector_data.keys())
     sector_results = {}
@@ -109,40 +174,7 @@ def generate_newsletter(sector_data, index_data, news_data, weekly=False):
     )
 
     print("   Agregando newsletter final...")
-    text = _call_llm(client, [
-        {"role": "system", "content": SYSTEM_MSG},
-        {"role": "user", "content": agg_prompt},
-    ], max_tokens=5000)
-
-    return _clean_response(text)
-
-
-MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-
-
-def _call_llm(client, messages, max_tokens=2500):
-    for model in MODELS:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.15,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            if "429" in str(e) or "rate_limit" in str(e).lower():
-                print(f"   {model} rate limited, tentando próximo...")
-                continue
-            raise
-    raise RuntimeError("Todos os modelos atingiram o rate limit.")
-    if text.startswith("```html"):
-        text = text[7:]
-    if text.startswith("```"):
-        text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
+    return _clean(_call_llm(agg_prompt, max_tokens=5000))
 
 
 def _build_sector_data(sector, data, news_list):
