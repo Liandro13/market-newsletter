@@ -1,0 +1,53 @@
+name: Market Newsletter
+
+on:
+  schedule:
+    # Diário seg-sex às 7:27 UTC (8:27 Lisboa horário de verão / 7:27 inverno)
+    - cron: '27 7 * * 1-5'
+    # Resumo semanal sábado às 9:13 UTC (10:13 Lisboa)
+    - cron: '13 9 * * 6'
+  workflow_dispatch:
+    inputs:
+      weekly:
+        description: 'Run weekly summary'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  newsletter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine newsletter type
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.weekly }}" == "true" ]]; then
+            echo "weekly=true" >> $GITHUB_OUTPUT
+          elif [[ "$(date +%u)" == "6" ]]; then
+            echo "weekly=true" >> $GITHUB_OUTPUT
+          else
+            echo "weekly=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run newsletter
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: |
+          if [[ "${{ steps.check.outputs.weekly }}" == "true" ]]; then
+            python src/main.py --weekly
+          else
+            python src/main.py
+          fi
