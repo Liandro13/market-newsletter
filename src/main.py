@@ -21,6 +21,23 @@ from analyzer import generate_newsletter
 from email_sender import send_newsletter
 
 
+DIAS_SEMANA = {
+    "Monday": "Segunda-feira", "Tuesday": "Terça-feira", "Wednesday": "Quarta-feira",
+    "Thursday": "Quinta-feira", "Friday": "Sexta-feira", "Saturday": "Sábado", "Sunday": "Domingo",
+}
+MESES = {
+    "January": "Janeiro", "February": "Fevereiro", "March": "Março", "April": "Abril",
+    "May": "Maio", "June": "Junho", "July": "Julho", "August": "Agosto",
+    "September": "Setembro", "October": "Outubro", "November": "Novembro", "December": "Dezembro",
+}
+
+
+def _data_pt(dt):
+    dia = DIAS_SEMANA.get(dt.strftime("%A"), dt.strftime("%A"))
+    mes = MESES.get(dt.strftime("%B"), dt.strftime("%B"))
+    return f"{dia}, {dt.day} de {mes} de {dt.year}"
+
+
 def build_email_html(content, weekly=False):
     template_path = Path(__file__).parent.parent / "templates" / "newsletter.html"
     template = Template(template_path.read_text(encoding="utf-8"))
@@ -29,10 +46,10 @@ def build_email_html(content, weekly=False):
     if weekly:
         subtitle = "Resumo Semanal de Mercados"
         date = f"Semana de {today.strftime('%d/%m/%Y')}"
-        title = f"📊 Market Pulse — Resumo Semanal"
+        title = "📊 Market Pulse — Resumo Semanal"
     else:
         subtitle = "Análise Diária de Mercados"
-        date = today.strftime("%A, %d de %B de %Y")
+        date = _data_pt(today)
         title = f"📊 Market Pulse — {today.strftime('%d/%m/%Y')}"
 
     return template.render(
