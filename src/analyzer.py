@@ -12,7 +12,8 @@ LINGUAGEM: Português de PORTUGAL (PT-PT). Usa "procura" (não "demanda"), "econ
 
 REGRAS:
 - As tabelas mostram OS DADOS. O texto explica O PORQUÊ. NUNCA repitas variações ou preços no texto.
-- Liga notícias a movimentos: "SAP caiu após resultados Q1 abaixo das expectativas (Reuters)."
+- Liga notícias a movimentos com hyperlinks HTML: 'SAP caiu após <a href="URL_DA_NOTICIA" target="_blank">resultados Q1 abaixo das expectativas (Reuters)</a>.'
+- SEMPRE usa o URL fornecido nos dados para criar o hyperlink. NUNCA inventes URLs.
 - Se não há notícia, diz "sem catalisador identificado" — NUNCA inventes.
 - PROIBIDO: "queda na procura por serviços de X", "concorrência no setor", "dia misto", "volatilidade" sem causa.
 - No OUTLOOK, menciona APENAS eventos que tens a certeza que existem. Se não sabes a data exacta, diz "próximos dias" — NUNCA inventes datas."""
@@ -24,7 +25,7 @@ Gera APENAS:
 2. Tabela com colunas: Nome | Ticker | Preço | Dia % | Sem % | Mês % | Ano %
    - Variações com cor: verde (#10b981) positivas, vermelho (#ef4444) negativas
    - Tabela compacta, font-size: 13px, borders: #e2e8f0
-3. Análise ({num_sentences} frases): Só causas baseadas nas notícias. Cita fontes entre parênteses. Não repitas dados da tabela.
+3. Análise ({num_sentences} frases): Só causas baseadas nas notícias. Para cada notícia citada, cria um hyperlink: <a href="URL" target="_blank">título ou fonte</a>. Não repitas dados da tabela.
 
 Retorna APENAS HTML, sem markdown code blocks.
 
@@ -196,7 +197,8 @@ def _build_sector_data(sector, data, news_list):
         for company_news in news_list:
             for article in company_news["articles"]:
                 source = f" — {article['source']}" if article["source"] else ""
-                lines.append(f"  [{company_news['ticker']}] {article['title']}{source}")
+                link = article.get("link", "")
+                lines.append(f"  [{company_news['ticker']}] {article['title']}{source} | URL: {link}")
                 snippet = article.get("snippet", "")
                 if snippet:
                     lines.append(f"    {snippet[:300]}")
