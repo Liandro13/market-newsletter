@@ -6,7 +6,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from jinja2 import Template
 
-load_dotenv()
+load_dotenv(Path(__file__).parent.parent.parent / ".env")        # shared: GEMINI_API_KEY
+load_dotenv(Path(__file__).parent.parent / ".env", override=True)  # local: project-specific overrides
 
 sys.path.insert(0, str(Path(__file__).parent))
 
